@@ -1,0 +1,103 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sandbox</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{width:100%;height:100%;display:block}
+#dbg{position:fixed;left:8px;top:8px;font:12px/1.4 monospace;color:#fff;text-shadow:0 1px 2px #000;white-space:pre;pointer-events:none}</style>
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/addons/"}}</script>
+</head><body><canvas id="c"></canvas><div id="dbg"></div>
+<script type="module">
+// Dev sandbox. Query params:
+//  p1, p2: hero ids     stage: stage id     ai: "2" (P2 AI, default) | "12" (both) | "" (none)
+//  lvl: AI level 0-3    script: P1 inputs "frame:BTNS[:hold],..." e.g. "30:Q,90:F:20,120:R" (F/B/U/D dirs, L M H Q W E R S buttons)
+//  script2: same for P2  frames: run N frames headlessly then render & freeze (for screenshots)
+//  shop: 1 to include shop phase   training: 1   level: force hero level   x1/x2: start x (px)
+import * as THREE from 'three';
+import { createGame, step } from '/src/sim/game.js';
+import { AI } from '/src/sim/ai.js';
+import { GameRenderer } from '/src/render/renderer.js';
+import * as I from '/src/sim/input.js';
+const q = new URLSearchParams(location.search);
+const p1 = q.get('p1') || 'aldric', p2 = q.get('p2') || 'aldric';
+const G = createGame({ heroes: [p1, p2], seed: +(q.get('seed') || 7), noShop: q.get('shop') !== '1', training: q.get('training') === '1' });
+if (q.get('level')) for (const f of G.fighters) { f.lv = +q.get('level'); }
+if (q.get('mana') !== '0') for (const f of G.fighters) f.mana = 999999;
+if (q.get('x1')) G.fighters[0].x = +q.get('x1') * 100;
+if (q.get('x2')) G.fighters[1].x = +q.get('x2') * 100;
+if (q.get('nointro') !== '0' && G.phase === 'intro') { G.pt = 1; }
+const rend = new GameRenderer(document.getElementById('c'), { quality: q.get('q') || 'high' });
+rend.setStage(q.get('stage') || 'debug');
+rend.setFighters([p1, p2]);
+const aiStr = q.get('ai') ?? '2';
+const ais = [aiStr.includes('1') ? new AI(0, +(q.get('lvl') || 2), 11) : null, aiStr.includes('2') ? new AI(1, +(q.get('lvl') || 2), 22) : null];
+const KEYMAP = { KeyW: I.UP, KeyS: I.DOWN, KeyA: I.LEFT, KeyD: I.RIGHT, KeyJ: I.B_L, KeyK: I.B_M, KeyL: I.B_H, KeyU: I.B_Q, KeyI: I.B_W, KeyO: I.B_E, Space: I.B_R, ShiftLeft: I.B_S, Semicolon: I.B_L | I.B_M };
+let keys = 0;
+addEventListener('keydown', (e) => { if (KEYMAP[e.code]) { keys |= KEYMAP[e.code]; e.preventDefault(); } });
+addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys &= ~KEYMAP[e.code]; });
+function parseScript(s) {
+  const out = [];
+  if (!s) return out;
+  for (const part of s.split(',')) {
+    const [fr, b, hold] = part.split(':');
+    let bits = 0;
+    for (const ch of b) bits |= { F: 'F', B: 'B', U: I.UP, D: I.DOWN, L: I.B_L, M: I.B_M, H: I.B_H, Q: I.B_Q, W: I.B_W, E: I.B_E, R: I.B_R, S: I.B_S }[ch] || 0;
+    out.push({ f: +fr, bits, rel: b, hold: +(hold || 1) });
+  }
+  return out;
+}
+const scripts = [parseScript(q.get('script')), parseScript(q.get('script2'))];
+function scripted(i) {
+  const f = G.fighters[i];
+  let bits = 0;
+  for (const s of scripts[i]) {
+    if (G.frame >= s.f && G.frame < s.f + s.hold) {
+      let b = s.bits;
+      if (s.rel.includes('F')) b |= f.face > 0 ? I.RIGHT : I.LEFT;
+      if (s.rel.includes('B')) b |= f.face > 0 ? I.LEFT : I.RIGHT;
+      b &= ~0; bits |= (typeof b === 'number' ? b : 0);
+    }
+  }
+  return bits;
+}
+let pending = [];
+function tick() {
+  const inp = [0, 0];
+  for (let i = 0; i < 2; i++) {
+    if (scripts[i].length) inp[i] = scripted(i);
+    else if (ais[i]) inp[i] = ais[i].think(G);
+    else if (i === 0) inp[i] = I.cleanInput(keys);
+  }
+  const out = [];
+  step(G, inp, out);
+  pending.push(...out);
+}
+const dbg = document.getElementById('dbg');
+function hud() {
+  const [a, b] = G.fighters;
+  dbg.textContent = `f${G.frame} ${G.phase} r${G.round} t${Math.ceil(G.timer / 60)}\n` +
+    G.fighters.map((f) => `${f.h} hp ${f.hp}/${f.mhp} mp ${(f.mana / 100) | 0} lv${f.lv} ${f.act}${f.mv ? ':' + f.mv : ''} af${f.af} cd ${f.cd.map((c) => (c / 60000).toFixed(1)).join('/')} combo ${f.combo}`).join('\n');
+}
+const frames = +(q.get('frames') || 0);
+if (frames) {
+  const renderFrom = Math.max(0, frames - (+(q.get('rf') || 45)));
+  for (let i = 0; i < frames; i++) {
+    tick();
+    if (i >= renderFrom) { rend.render(G, 1 / 60, pending); pending = []; }
+    else pending = [];
+  }
+  hud();
+  window.__ready = true;
+} else {
+  let last = performance.now(), acc = 0;
+  function loop(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    acc += dt;
+    let n = 0;
+    while (acc >= 1 / 60 && n < 4) { tick(); acc -= 1 / 60; n++; }
+    rend.render(G, dt, pending); pending = [];
+    hud();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  window.__ready = true;
+}
+window.G = G; window.rend = rend;
+</script></body></html>

@@ -1,0 +1,99 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Pose sheet</title>
+<style>html,body{margin:0;background:#1b1d26;overflow:hidden}canvas{display:block}#lbl{position:fixed;inset:0;pointer-events:none;font:11px monospace;color:#fff}</style>
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/addons/"}}</script>
+</head><body><div id="lbl"></div>
+<script type="module">
+import * as THREE from 'three';
+import { FighterView } from '/src/render/fighterView.js';
+import { HEROES } from '/src/sim/heroes/index.js';
+const q = new URLSearchParams(location.search);
+const hero = q.get('hero') || 'aldric';
+const W = 1600, H = 1000;
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(W, H); r.setPixelRatio(1); document.body.appendChild(r.domElement);
+r.shadowMap.enabled = true;
+r.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2d3a);
+scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x40302a, 1.4));
+const key = new THREE.DirectionalLight(0xfff2dd, 2.4); key.position.set(3, 6, 8); scene.add(key);
+const rim = new THREE.DirectionalLight(0x88aaff, 1.5); rim.position.set(-4, 3, -6); scene.add(rim);
+const Hd = HEROES[hero];
+// list of [label, fakeFighter]
+const list = [];
+const mk = (lbl, f) => list.push([lbl, Object.assign({ act: 'idle', af: 1, mv: null, x: 0, y: 0, vx: 0, vy: 0, face: 1, hs: 0, stun: 10, combo: 0, in: 0, jv: 0, d: {} }, f)]);
+const mode = q.get('mode') || 'moves';
+if (mode === 'moves') {
+  mk('stance', {});
+  mk('crouch', { act: 'crouch', af: 10 });
+  for (const id of (q.get('moves') || 'stL,stM,stH,crL,crM,crH,jL,jM,jH,fH,throw,Q,W,E,R').split(',')) {
+    const m = Hd.moves[id]; if (!m) continue;
+    const frames = (q.get('at') || 'w,s').split(',');
+    for (const fr of frames) {
+      const af = fr === 'w' ? Math.max(1, m.startup - 3) : fr === 's' ? m.startup : fr === 'a' ? m.lastActive : fr === 'r' ? m.lastActive + Math.floor(m.recovery / 2) : +fr;
+      mk(`${id}@${fr}(${af})`, { act: 'move', mv: id, af, y: m.air ? 900 : 0 });
+    }
+  }
+} else {
+  mk('walk', { act: 'walk', af: 5 });
+  mk('guard', { act: 'guard' });
+  mk('block', { act: 'block' });
+  mk('blockLow', { act: 'block', crouch: true });
+  mk('hit', { act: 'hit', af: 2, combo: 1 });
+  mk('hitMid', { act: 'hit', af: 2, combo: 2 });
+  mk('hitLow', { act: 'hit', af: 2, crouch: true });
+  mk('jsq', { act: 'jsq' });
+  mk('air up', { act: 'air', af: 5, vy: 1500, y: 9000 });
+  mk('air fall', { act: 'air', af: 30, vy: -1500, y: 9000 });
+  mk('fwdjump', { act: 'air', af: 14, jv: 1, vy: 200, y: 15000 });
+  mk('land', { act: 'land', af: 1, stun: 3 });
+  mk('dash', { act: 'dash', af: 5 });
+  mk('bdash', { act: 'bdash', af: 5 });
+  mk('ahit', { act: 'ahit', af: 8, kdOnLand: true, vy: 400, y: 9000 });
+  mk('kd', { act: 'kd', af: 20, stun: 44 });
+  mk('rise', { act: 'kd', af: 37, stun: 44 });
+  mk('dispel', { act: 'dispel', af: 3 });
+  mk('intro', { act: 'intro', af: 1 });
+  mk('win', { act: 'win', af: 60 });
+  mk('dead', { act: 'kd', af: 20, dead: true });
+}
+const cols = +(q.get('cols') || 6);
+const rows = Math.ceil(list.length / cols);
+const cellW = 2.4, cellH = 2.7;
+const cam = new THREE.OrthographicCamera(-cols * cellW / 2, cols * cellW / 2, rows * cellH / 2, -rows * cellH / 2, 0.1, 100);
+cam.position.set(0, 0, 20); cam.lookAt(0, 0, 0);
+r.setSize(W, Math.round(W * (rows * cellH) / (cols * cellW)));
+const lbl = document.getElementById('lbl');
+const views = [];
+list.forEach(([name, f], i) => {
+  const v = new FighterView(hero, 0);
+  const cx = (i % cols - (cols - 1) / 2) * cellW, cy = ((rows - 1) / 2 - Math.floor(i / cols)) * cellH - 1.1;
+  scene.add(v.group);
+  const G = { lock: null, frame: 1 };
+  for (let k = 0; k < 30; k++) v.update(f, G, 1 / 60, k / 60);
+  v.group.position.x = cx + (f.x || 0); v.group.position.y = cy + (f.y ? 0.4 : 0);
+  // ground line
+  const g = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.01), new THREE.MeshBasicMaterial({ color: 0x666666 }));
+  g.position.set(cx, cy, -1); scene.add(g);
+  // hitbox overlay
+  if (f.act === 'move') {
+    const m = Hd.moves[f.mv];
+    for (const h of m.hits) {
+      if (f.af < h.from || f.af > h.to) continue;
+      const b = h.box.map((v) => v / 10000);
+      const box = new THREE.Mesh(new THREE.PlaneGeometry(b[2], b[3]), new THREE.MeshBasicMaterial({ color: 0xff2040, transparent: true, opacity: 0.35, depthTest: false }));
+      box.position.set(cx + b[0] + b[2] / 2, cy + (f.y ? 0.4 : 0) + b[1] + b[3] / 2, 2); scene.add(box);
+    }
+  }
+  const S = Hd.stats;
+  const hb = new THREE.Mesh(new THREE.PlaneGeometry(S.hw * 2 / 10000, S.heightS / 10000), new THREE.MeshBasicMaterial({ color: 0x20ff60, transparent: true, opacity: 0.12, depthTest: false }));
+  hb.position.set(cx, cy + S.heightS / 20000, 1.9); scene.add(hb);
+  const d = document.createElement('div');
+  d.textContent = name; d.style.position = 'absolute';
+  d.style.left = ((i % cols) / cols * 100) + '%'; d.style.top = (Math.floor(i / cols) / rows * 100) + '%';
+  d.style.padding = '4px';
+  lbl.appendChild(d);
+});
+r.render(scene, cam);
+window.__ready = true;
+</script></body></html>

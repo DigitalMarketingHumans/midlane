@@ -1,0 +1,63 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Stage preview</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{width:100%;height:100%;display:block}
+#dbg{position:fixed;left:8px;top:8px;font:12px/1.4 monospace;color:#fff;text-shadow:0 1px 2px #000;white-space:pre;pointer-events:none}</style>
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/addons/"}}</script>
+</head><body><canvas id="c"></canvas><div id="dbg"></div>
+<script type="module">
+// Stage preview. Query params:
+//  stage: id   p1,p2: heroes   x1,x2: fighter x (px)   q: high|low
+//  t: stage time offset (s) to preview timed events   frames: frames to render before freezing (default 20)
+//  cam: "x,y,z,lx,ly" fixed camera override   orbit: radians (applied around look target)
+//  ult: 1 to show the super-freeze dim plane   info: 1 to print draw calls / triangles
+//  live: 1 to keep animating in real time (orbit with mouse drag)
+import * as THREE from 'three';
+import { createGame, step } from '/src/sim/game.js';
+import { GameRenderer } from '/src/render/renderer.js';
+const q = new URLSearchParams(location.search);
+const p1 = q.get('p1') || 'aldric', p2 = q.get('p2') || 'aldric';
+const G = createGame({ heroes: [p1, p2], seed: 7, noShop: true });
+if (q.get('x1')) G.fighters[0].x = +q.get('x1') * 100;
+if (q.get('x2')) G.fighters[1].x = +q.get('x2') * 100;
+if (G.phase === 'intro') G.pt = 1;
+G.camX = Math.round((G.fighters[0].x + G.fighters[1].x) / 2);
+const rend = new GameRenderer(document.getElementById('c'), { quality: q.get('q') || 'high' });
+const t0 = performance.now();
+rend.setStage(q.get('stage') || 'river');
+const buildMs = performance.now() - t0;
+rend.setFighters([p1, p2]);
+rend.time = +(q.get('t') || 0);
+const camQ = q.get('cam') ? q.get('cam').split(',').map(Number) : null;
+const orbit = +(q.get('orbit') || 0);
+let pending = [];
+function tick() { const out = []; step(G, [0, 0], out); pending.push(...out); }
+function draw(dt) {
+  rend.render(G, dt, pending); pending = [];
+  if (camQ || orbit || q.get('ult')) {
+    if (q.get('ult')) { rend.dimMat.opacity = 0.72; }
+    const [x, y, z, lx, ly] = camQ || [rend.cam.x, rend.cam.y, rend.cam.z, rend.cam.x, rend.cam.ly];
+    const dz = z;
+    rend.camera.position.set(x + Math.sin(orbit) * dz, y, Math.cos(orbit) * dz);
+    rend.camera.lookAt(lx ?? x, ly ?? 1.2, 0);
+    if (rend.stage.update) rend.stage.update(0, rend.time, rend.camera);
+    rend.post.draw(0);
+  }
+}
+const frames = +(q.get('frames') || 20);
+rend.r.info.autoReset = false;
+for (let i = 0; i < frames; i++) { tick(); rend.r.info.reset(); draw(1 / 60); }
+const info = rend.r.info.render;
+const dbg = document.getElementById('dbg');
+
+let meshes = 0, casters = 0, stageTris = 0, inst = 0;
+rend.stage.group.traverse((o) => { if ((o.isMesh || o.isPoints) && o.visible) { meshes++; if (o.castShadow) casters++; const g = o.geometry; const n = g.index ? g.index.count : g.attributes.position.count; stageTris += (g.isInstancedBufferGeometry ? n * g.instanceCount : n) / 3; if (g.isInstancedBufferGeometry) inst += g.instanceCount; } });
+window.__info = { calls: info.calls, triangles: info.triangles, buildMs: Math.round(buildMs), stageMeshes: meshes, casters, stageTris: Math.round(stageTris), particles: inst };
+rend.r.info.autoReset = true;
+if (q.get('info')) dbg.textContent = JSON.stringify(window.__info);
+window.__ready = true;
+if (q.get('live')) {
+  let last = performance.now();
+  (function loop(now) { const dt = Math.min(0.1, (now - last) / 1000); last = now; tick(); draw(dt); requestAnimationFrame(loop); })(last);
+}
+window.G = G; window.rend = rend;
+</script></body></html>

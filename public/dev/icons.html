@@ -1,0 +1,107 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Icon Set</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/addons/"}}</script>
+<style>
+  :root { --bg: #14161d; --panel: #1c1f29; --ink: #e9e6dc; --dim: #8d8a80; --gold: #c9a45a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; }
+  header { padding: 18px 22px 8px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  h1 { margin: 0; font: 600 20px/1 Georgia, serif; letter-spacing: .14em; color: var(--gold); }
+  header span { color: var(--dim); }
+  section { margin: 10px 16px 18px; padding: 12px 14px 14px; background: var(--panel); border-radius: 10px; border: 1px solid #2a2e3a; }
+  h2 { margin: 0 0 10px; font: 600 13px/1 ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); display: flex; gap: 10px; align-items: center; }
+  h2 i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px 6px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px 4px; border-radius: 8px; }
+  .cell:hover { background: #ffffff0d; }
+  .pair { display: flex; align-items: flex-end; gap: 6px; }
+  .cell b { font-weight: 500; color: #cfcabd; font-size: 11px; }
+  .raw { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 8px; }
+  .raw div { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--dim); font-size: 10px; }
+  .raw svg { color: #f1ede2; }
+  .raw.light { background: #e9e4d6; border-radius: 8px; padding: 8px; }
+  .raw.light svg { color: #1d1f27; }
+  .raw.light div { color: #5e5a50; }
+  /* HUD demo */
+  .hud { display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap; }
+  .bar { display: flex; gap: 6px; padding: 8px; background: #0d0f15cc; border: 1px solid #333848; border-radius: 10px; }
+  .slot { position: relative; width: 56px; height: 56px; }
+  .slot svg, .slot img { display: block; width: 56px; height: 56px; }
+  .slot .cd { position: absolute; inset: 3px; border-radius: 9px; background: conic-gradient(#000a var(--p), transparent 0); }
+  .slot .t { position: absolute; inset: 0; display: grid; place-items: center; font: 700 16px/1 ui-monospace, monospace; color: #fff; text-shadow: 0 1px 3px #000; }
+  .slot .k { position: absolute; right: 2px; bottom: 1px; font: 700 10px/1 ui-monospace, monospace; color: #fff; background: #000a; border-radius: 4px; padding: 2px 3px; }
+  .slot.off { filter: grayscale(.85) brightness(.6); }
+  .items { display: flex; gap: 5px; }
+  .items img { width: 40px; height: 40px; display: block; }
+</style>
+</head><body>
+<header><h1>MIDLANE · ICONS</h1><span id="count"></span><span>params: <code>?themes=default,str,agi,int,shop</code> · <code>&raw=0</code> · <code>&rawsize=96</code> · <code>&hud=0</code></span></header>
+<div id="root"></div>
+<script type="module">
+import { ICON_NAMES, glyph, iconSVG, iconDataURL } from '/src/ui/icons.js';
+const q = new URLSearchParams(location.search);
+const THEMES = {
+  default: { label: 'Default', swatch: '#223', opts: {} },
+  str: { label: 'Strength', swatch: '#8a3418', opts: { fg: '#ffe2c4', bg: '#36110b', bg2: '#8a3418', frame: '#d4904e' } },
+  agi: { label: 'Agility', swatch: '#1f7a4c', opts: { fg: '#dcffe8', bg: '#0a2619', bg2: '#22784b', frame: '#86d6a6' } },
+  int: { label: 'Intelligence', swatch: '#2c4fa8', opts: { fg: '#e3edff', bg: '#0d1534', bg2: '#2c4fa8', frame: '#a3bbff' } },
+  shop: { label: 'Shop / items', swatch: '#4a3a20', opts: { fg: '#ffd36b', bg: '#17120c', bg2: '#4a3a20', frame: '#8a6a3a', round: 6 } },
+};
+const root = document.getElementById('root');
+document.getElementById('count').textContent = `${ICON_NAMES.length} glyphs`;
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+if (q.get('hud') !== '0') {
+  const s = el('section'); s.appendChild(el('h2', null, 'HUD usage — inline SVG with cooldown sweep · &lt;img&gt; data URLs'));
+  const hud = el('div', 'hud');
+  const bar = el('div', 'bar');
+  const abil = [['quake', 'Q', 0], ['furnace', 'W', 0.62], ['grab', 'E', 0.25], ['anvil', 'R', 1]];
+  for (const [nm, key, cd] of abil) {
+    const sl = el('div', 'slot' + (cd >= 1 ? ' off' : ''), iconSVG(nm, Object.assign({ size: 56 }, THEMES.str.opts)));
+    if (cd > 0 && cd < 1) { const c = el('div', 'cd'); c.style.setProperty('--p', (cd * 360).toFixed(0) + 'deg'); sl.appendChild(c); sl.appendChild(el('div', 't', (cd * 10).toFixed(0))); }
+    sl.appendChild(el('div', 'k', key)); bar.appendChild(sl);
+  }
+  hud.appendChild(bar);
+  const bar2 = el('div', 'bar');
+  for (const [nm, key] of [['arc', 'Q'], ['uppercut', 'W'], ['charge', 'E'], ['pillar', 'R']]) {
+    const sl = el('div', 'slot'); const img = new Image(); img.src = iconDataURL(nm, THEMES.default.opts); sl.appendChild(img); sl.appendChild(el('div', 'k', key)); bar2.appendChild(sl);
+  }
+  hud.appendChild(bar2);
+  const items = el('div', 'items');
+  for (const nm of ['heart', 'gem', 'fist', 'book', 'shield', 'cloak', 'boot', 'fang', 'hourglass', 'skull', 'sigil', 'phase']) { const img = new Image(); img.src = iconDataURL(nm, THEMES.shop.opts); img.title = nm; items.appendChild(img); }
+  hud.appendChild(items);
+  const attrs = el('div', 'items');
+  for (const [nm, t] of [['str', 'str'], ['agi', 'agi'], ['int', 'int'], ['gold', 'shop'], ['xp', 'default'], ['level', 'default'], ['rune', 'default']]) { const img = new Image(); img.src = iconDataURL(nm, THEMES[t].opts); img.title = nm; attrs.appendChild(img); }
+  hud.appendChild(attrs);
+  s.appendChild(hud); root.appendChild(s);
+}
+
+if (q.get('raw') !== '0') {
+  const s = el('section'); s.appendChild(el('h2', null, `Raw glyphs — silhouette check at ${+(q.get('rawsize') || 40)} px (currentColor)`));
+  for (const light of [false, true]) {
+    const g = el('div', 'raw' + (light ? ' light' : ''));
+    const rs = +(q.get('rawsize') || 40); g.style.gridTemplateColumns = `repeat(auto-fill, minmax(${rs + 14}px, 1fr))`;
+    for (const nm of ICON_NAMES) g.appendChild(el('div', null, `<svg width="${rs}" height="${rs}" viewBox="0 0 64 64" fill="currentColor">${glyph(nm)}</svg>${nm}`));
+    s.appendChild(g);
+    if (!light) s.appendChild(el('div', null, '&nbsp;'));
+  }
+  root.appendChild(s);
+}
+
+for (const key of (q.get('themes') || 'default,str,agi,int,shop').split(',')) {
+  const th = THEMES[key]; if (!th) continue;
+  const s = el('section');
+  s.appendChild(el('h2', null, `<i style="background:${th.swatch}"></i>${th.label} — 64 px &amp; 40 px`));
+  const grid = el('div', 'grid');
+  for (const nm of ICON_NAMES) {
+    const c = el('div', 'cell');
+    c.appendChild(el('div', 'pair', iconSVG(nm, Object.assign({}, th.opts, { size: 64 })) + iconSVG(nm, Object.assign({}, th.opts, { size: 40 }))));
+    c.appendChild(el('b', null, nm));
+    grid.appendChild(c);
+  }
+  s.appendChild(grid); root.appendChild(s);
+}
+window.__ready = true;
+</script>
+</body></html>
